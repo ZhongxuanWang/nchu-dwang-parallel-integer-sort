@@ -1,11 +1,11 @@
-n ?= 100000
+n ?= 1000000
 path ?= sort/sort_numbers
 # usage: make n=[whatever] path=[path to ur sorting executable]
 serial: sort/sort_numbers
 	python3 check.py $(n) $(path)
 
-sort/sort_numbers: sort/sort_numbers.ml
-	ocamlc -o sort/sort_numbers sort/sort_numbers.ml
+sort/sort_numbers: sort/sort_numbers.c
+	gcc -o sort/sort_numbers sort/sort_numbers.c
 
 .PHONY: clean
 
