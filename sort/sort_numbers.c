@@ -1,64 +1,69 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <cuda_runtime.h>
+#include <pthread.h>
 
-#define THREADS_PER_BLOCK 1024
+#define MAX_THREADS 8
 
-__global__ void mergeKernel(int *arr, int *temp, int size, int width)
-{
-  int idx = blockIdx.x * blockDim.x + threadIdx.x;
-  int left = idx * 2 * width;
-  int mid = left + width - 1;
-  int right = left + 2 * width - 1;
+typedef struct {
+  int *arr;
+  int left;
+  int right;
+  int depth;
+} thread_args;
 
-  if (right >= size)
-    right = size - 1;
-  if (mid < right)
-  {
-    int i = left, j = mid + 1, k = left;
+void merge(int arr[], int left, int mid, int right) {
+    int size = right - left + 1;
+    int *temp = (int *)malloc(size * sizeof(int));
+
+    int i = left, j = mid + 1, k = 0;
 
     while (i <= mid && j <= right)
-    {
-      temp[k++] = (arr[i] <= arr[j]) ? arr[i++] : arr[j++];
-    }
+        temp[k++] = (arr[i] <= arr[j]) ? arr[i++] : arr[j++];
+    while (i <= mid) temp[k++] = arr[i++];
+    while (j <= right) temp[k++] = arr[j++];
 
-    while (i <= mid)
-      temp[k++] = arr[i++];
-    while (j <= right)
-      temp[k++] = arr[j++];
-
-    for (int i = left; i <= right; i++)
-    {
-      arr[i] = temp[i];
-    }
-  }
+    for (i = 0; i < size; i++)
+        arr[left + i] = temp[i];
 }
 
-void parallelMergeSort(int *arr, int size)
-{
-  int *d_arr, *d_temp;
-  cudaMalloc((void **)&d_arr, size * sizeof(int));
-  cudaMalloc((void **)&d_temp, size * sizeof(int));
+void *mergeSort(void *arg) {
+    thread_args *data = (thread_args *)arg;
+    int left = data->left;
+    int right = data->right;
+    int depth = data->depth;
+    int *arr = data->arr;
 
-  cudaMemcpy(d_arr, arr, size * sizeof(int), cudaMemcpyHostToDevice);
+    if (left < right) {
+        int mid = (left + right) / 2;
 
-  for (int width = 1; width < size; width *= 2)
-  {
-    int numBlocks = (size / (2 * width) + THREADS_PER_BLOCK - 1) / THREADS_PER_BLOCK;
-    mergeKernel<<<numBlocks, THREADS_PER_BLOCK>>>(d_arr, d_temp, size, width);
-    cudaDeviceSynchronize();
-  }
+        if (depth < MAX_THREADS) {
+            pthread_t thread1, thread2;
+            thread_args data1 = {arr, left, mid, depth + 1};
+            thread_args data2 = {arr, mid + 1, right, depth + 1};
 
-  cudaMemcpy(arr, d_arr, size * sizeof(int), cudaMemcpyDeviceToHost);
+            pthread_create(&thread1, NULL, mergeSort, &data1);
+            pthread_create(&thread2, NULL, mergeSort, &data2);
 
-  cudaFree(d_arr);
-  cudaFree(d_temp);
+            pthread_join(thread1, NULL);
+            pthread_join(thread2, NULL);
+        } else {
+            thread_args data1 = {arr, left, mid, depth + 1};
+            thread_args data2 = {arr, mid + 1, right, depth + 1};
+
+            mergeSort(&data1);
+            mergeSort(&data2);
+        }
+
+        merge(arr, left, mid, right);
+    }
+
+    return NULL;
 }
 
 int main()
 {
-  int capacity = 1000002;
-  int *arr = (int *)malloc(capacity * sizeof(int));
+  int capacity = 1_000_002;
+  int *arr = malloc(capacity * sizeof(int));
   int size = 0, num;
 
   while (scanf("%d", &num) == 1)
@@ -67,11 +72,12 @@ int main()
     if (size >= capacity)
     {
       capacity *= 10;
-      arr = (int *)realloc(arr, capacity * sizeof(int));
+      arr = realloc(arr, capacity * sizeof(int));
     }
   }
-
-  parallelMergeSort(arr, size);
+  int n = sizeof(arr) / sizeof(arr[0]);
+  thread_args data = {arr, 0, n - 1, 0};
+  mergeSort(&data);
 
   for (int i = 0; i < size; i++)
   {
@@ -79,7 +85,8 @@ int main()
   }
   printf("\n");
 
-  // Avoid calling free for performance
+  // avoid calling it to make it faster..
   // free(arr);
+  // free(temp);
   return 0;
 }
